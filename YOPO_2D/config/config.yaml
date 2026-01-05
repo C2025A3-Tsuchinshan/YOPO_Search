@@ -1,0 +1,124 @@
+# ============================================================
+# YOPO 2D Configuration (对齐 YOPO_Sim/YOPO/config/traj_opt.yaml)
+# ============================================================
+
+# 1. 环境参数 ==================================================
+env:
+  map_size: [100.0, 100.0]      # 地图大小 [x, y] (meters)
+  resolution: 0.1                # 地图分辨率 (meters/grid)
+  seed: 42                       # 随机种子
+
+  # 障碍物生成
+  map_type: "forest"             # forest, maze, pillars, random
+  obstacle_num: 80               # 障碍物数量
+  obstacle_radius_min: 0.3       # 最小障碍物半径
+  obstacle_radius_max: 1.5       # 最大障碍物半径
+  
+  # 迷宫参数
+  maze_complexity: 0.3           # 迷宫复杂度
+  maze_density: 0.3              # 迷宫密度
+
+# 2. 传感器参数 ================================================
+sensor:
+  type: "lidar"                  # lidar (2D激光雷达)
+  num_beams: 180                 # 激光束数量
+  fov: 180.0                     # 视场角 (degrees)
+  max_range: 15.0                # 最大探测距离 (meters)
+  min_range: 0.1                 # 最小探测距离 (meters)
+  noise_std: 0.01                # 测量噪声标准差
+
+# 3. 机器人参数 ================================================
+robot:
+  radius: 0.3                    # 机器人半径 (meters)
+  max_vel: 6.0                   # 最大速度 (m/s) - 对齐 YOPO_Sim velocity
+  max_acc: 6.0                   # 最大加速度 (m/s^2)
+  max_omega: 2.0                 # 最大角速度 (rad/s)
+  
+# 4. 轨迹优化参数 (对齐 YOPO_Sim traj_opt.yaml) =================
+trajectory:
+  # 基元网格参数 (对齐 YOPO_Sim)
+  horizon_num: 7                 # 水平方向基元数量 (增加覆盖范围)
+  vertical_num: 1                # 垂直层数 (2D为1)
+  direction_fov: 140.0           # 基元覆盖角度 (扩大到 ±70°，更好的侧向覆盖)
+  anchor_fov: 30.0               # 每个anchor的FOV (对齐 YOPO_Sim horizon_anchor_fov)
+  
+  # 规划范围 (对齐 YOPO_Sim)
+  radio_range: 5.0               # 规划半径 (meters) - 对齐 YOPO_Sim radio_range
+  planning_horizon: 10.0         # 规划距离 = 2 * radio_range
+  # segment_time 自动计算: 2 * radio_range / vel_max_train
+  
+  collision_check_points: 30     # 碰撞检测采样点数 (对齐 YOPO_Sim eval_points)
+  
+  # 损失权重 (对齐 YOPO_Sim traj_opt.yaml)
+  w_guidance: 0.15               # wg: 目标引导权重
+  w_smoothness: 10.0             # ws: 平滑性权重 (Jerk)
+  w_acceleration: 1.0            # wa: 加速度权重
+  w_safety: 1.0                  # wc: 安全性权重 (碰撞)
+  w_direction: 0.0               # 末端方向一致性权重 (可选)
+  
+  # 安全参数 (对齐 YOPO_Sim)
+  safe_distance: 1.2             # d0: 安全距离阈值
+  robot_inflation: 0.6           # r: 膨胀半径  
+  # Guidance Loss 横向容差 (对齐 YOPO_Sim)
+  guidance_perp_weight: 0.3      # 横向分量权重 (越小越允许侧向探索)
+  guidance_length_weight: 0.1   # 轨迹长度奖励权重 (惩罚过短轨迹，鼓励绕行)
+# 5. 网络参数 ==================================================
+network:
+  input_dim: 180                 # 输入维度 (激光束数量)
+  state_dim: 6                   # 状态维度 [vx, vy, ax, ay, goal_x, goal_y]
+  hidden_dim: 128                # 隐藏层维度
+  output_dim: 7                  # 每个基元输出 [dyaw, dr, vx, vy, ax, ay, score]
+  backbone: resnet1d             # mlp, cnn1d, resnet1d
+
+# 6. 训练参数 (对齐 YOPO_Sim) ==================================
+training:
+  batch_size: 64                 # 对齐 YOPO_Sim (16-64 较合适)
+  learning_rate: 1.5e-4          # 对齐 YOPO_Sim
+  epochs: 100
+  loss_weight: [1.0, 1.0]        # [traj_weight, score_weight]
+  
+  # 速度/加速度限制 (对齐 YOPO_Sim vel_max_train, acc_max_train)
+  vel_max_train: 6.0             # 训练时的最大速度
+  acc_max_train: 6.0             # 训练时的最大加速度
+  
+  num_samples: 50000             # 数据集样本数
+  val_ratio: 0.1                 # 验证集比例
+  save_interval: 10              # 保存间隔 (epochs)
+  
+  # 状态采样分布 (对齐 YOPO_Sim)
+  vx_mean_unit: 0.4              # vx均值 (归一化)
+  vx_std_unit: 2.0               # vx标准差 (归一化)
+  vy_mean_unit: 0.0              # vy均值 (归一化)
+  vy_std_unit: 0.45              # vy标准差 (归一化)
+  ax_mean_unit: 0.0              # ax均值 (归一化)
+  ax_std_unit: 0.5               # ax标准差 (归一化)
+  ay_mean_unit: 0.0              # ay均值 (归一化)
+  ay_std_unit: 0.5               # ay标准差 (归一化)
+  
+  # 目标采样 (对齐 YOPO_Sim)
+  goal_yaw_std: 20.0             # 目标偏航标准差 (degrees)
+  # goal_length 自动计算: 2 * radio_range
+  
+  resample_state: true           # 每次迭代重新采样状态
+  near_obstacle_ratio: 0.3       # 近障碍物样本比例
+  near_obstacle_distance: 2.0    # 近障碍物距离阈值 (meters)
+  
+  # 近目标场景 (改善最后一公里问题)
+  near_goal_ratio: 0.3           # 近目标样本比例 (对齐YOPO_Sim)
+  near_goal_distance: 5.0        # 近目标距离阈值 (meters)
+
+# 7. 仿真参数 ==================================================
+simulation:
+  dt: 0.02                       # 仿真步长 (seconds)
+  max_steps: 2000                # 最大步数
+  goal_threshold: 2.5            # 到达目标阈值 (meters) - 从1.0增大，对齐YOPO_Sim
+  collision_threshold: 0.0       # 碰撞阈值 (0表示使用robot_radius)
+  max_collision_attempts: 3      # 碰撞恢复重试次数
+  
+# 8. 可视化参数 ================================================
+visualization:
+  enable: true                   # 是否启用可视化
+  fps: 30                        # 帧率
+  show_trajectory: true          # 显示轨迹
+  show_primitives: true          # 显示运动基元
+  show_lidar: true               # 显示激光数据

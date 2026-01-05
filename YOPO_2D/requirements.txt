@@ -1,0 +1,27 @@
+# YOPO 2D Requirements
+# Python >= 3.8
+
+# 核心依赖
+numpy>=1.21.0
+torch>=1.10.0
+scipy>=1.7.0
+
+# 配置和数据
+pyyaml>=5.4
+h5py>=3.0
+
+# 可视化
+matplotlib>=3.4.0
+pygame>=2.1.0
+
+# 训练工具
+tensorboard>=2.8.0
+tqdm>=4.62.0
+rich>=12.0.0
+
+# 图像处理 (可选, 用于保存图像)
+opencv-python>=4.5.0
+pillow>=8.0.0
+
+# 科学计算
+scikit-learn>=0.24.0
