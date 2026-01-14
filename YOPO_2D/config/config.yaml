@@ -115,10 +115,27 @@ simulation:
   collision_threshold: 0.0       # 碰撞阈值 (0表示使用robot_radius)
   max_collision_attempts: 3      # 碰撞恢复重试次数
   
-# 8. 可视化参数 ================================================
+# 8. 搜索任务参数 ==============================================
+search:
+  # 不确定性地图参数
+  initial_prob: 0.5              # 初始目标存在概率
+  detection_prob: 0.9            # 检测概率 p_d
+  false_alarm_prob: 0.1          # 虚警概率 p_f
+  k_eta: 1.0                     # 不确定性增益参数
+  sensor_radius: 5.0             # 传感器覆盖半径 (meters)
+  
+  # 搜索损失权重
+  w_search: 0.15                 # 搜索引导权重 (替代 w_guidance)
+  
+  # 目标相关
+  num_targets: 1                 # 目标数量 (单机单目标)
+  target_radius: 1.0             # 目标检测半径 (meters)
+
+# 9. 可视化参数 ================================================
 visualization:
   enable: true                   # 是否启用可视化
   fps: 30                        # 帧率
   show_trajectory: true          # 显示轨迹
   show_primitives: true          # 显示运动基元
   show_lidar: true               # 显示激光数据
+  show_uncertainty: true         # 显示不确定性地图
