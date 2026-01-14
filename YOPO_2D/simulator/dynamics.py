@@ -353,6 +353,20 @@ class Poly5Solver2D:
             'acceleration': accelerations
         }
 
+    def evaluate(self, t: float) -> tuple:
+        """Evaluate trajectory at time t, return position, velocity, acceleration.
+
+        Args:
+            t: time (seconds)
+
+        Returns:
+            (pos, vel, acc): each is ndarray shape (2,)
+        """
+        pos = self.get_position(t)
+        vel = self.get_velocity(t)
+        acc = self.get_acceleration(t)
+        return pos, vel, acc
+
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt

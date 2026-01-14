@@ -21,8 +21,8 @@ env:
 # 2. 传感器参数 ================================================
 sensor:
   type: "lidar"                  # lidar (2D激光雷达)
-  num_beams: 180                 # 激光束数量
-  fov: 180.0                     # 视场角 (degrees)
+  num_beams: 360                 # 激光束数量（全向雷达建议 360）
+  fov: 360.0                     # 视场角 (degrees) - 360 表示 2D 全向
   max_range: 15.0                # 最大探测距离 (meters)
   min_range: 0.1                 # 最小探测距离 (meters)
   noise_std: 0.01                # 测量噪声标准差
@@ -64,7 +64,7 @@ trajectory:
   guidance_length_weight: 0.1   # 轨迹长度奖励权重 (惩罚过短轨迹，鼓励绕行)
 # 5. 网络参数 ==================================================
 network:
-  input_dim: 180                 # 输入维度 (激光束数量)
+  input_dim: 360                 # 输入维度 (激光束数量) - 建议与 sensor.num_beams 一致
   state_dim: 6                   # 状态维度 [vx, vy, ax, ay, goal_x, goal_y]
   hidden_dim: 128                # 隐藏层维度
   output_dim: 7                  # 每个基元输出 [dyaw, dr, vx, vy, ax, ay, score]

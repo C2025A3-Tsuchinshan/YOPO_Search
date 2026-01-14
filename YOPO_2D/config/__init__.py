@@ -36,6 +36,12 @@ class Config:
         traj = self._data['trajectory']
         robot = self._data['robot']
         train = self._data['training']
+
+        # 同步网络输入维度到雷达束数（避免配置不一致）
+        sensor = self._data.get('sensor', {}) if isinstance(self._data, dict) else {}
+        network = self._data.get('network', {}) if isinstance(self._data, dict) else {}
+        if isinstance(sensor, dict) and isinstance(network, dict) and 'num_beams' in sensor:
+            network['input_dim'] = int(sensor['num_beams'])
         
         # 使用训练速度计算 (对齐 YOPO_Sim)
         vel_max_train = float(train.get('vel_max_train', robot['max_vel']))

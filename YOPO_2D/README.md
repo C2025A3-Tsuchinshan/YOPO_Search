@@ -94,8 +94,8 @@ tensorboard --logdir=saved/
 ### 传感器参数
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `num_beams` | 激光束数量 | 180 |
-| `fov` | 视场角 (°) | 180 |
+| `num_beams` | 激光束数量 | 360 |
+| `fov` | 视场角 (°) | 360 |
 | `max_range` | 最大探测距离 (m) | 15 |
 
 ### 轨迹参数
@@ -127,7 +127,7 @@ map_2d.generate('forest')
 ```python
 from simulator.sensor import Lidar2D
 
-lidar = Lidar2D(num_beams=180, fov=180, max_range=15)
+lidar = Lidar2D(num_beams=360, fov=360, max_range=15)
 ranges = lidar.scan(map_2d, position, heading)
 ```
 
@@ -145,7 +145,7 @@ ranges = lidar.scan(map_2d, position, heading)
 
 ```
 输入:
-├── 激光数据 [180]
+├── 激光数据 [360]
 └── 状态 [6]: [vx, vy, ax, ay, goal_x, goal_y]
 
 网络:
@@ -172,7 +172,7 @@ ranges = lidar.scan(map_2d, position, heading)
 | 维度 | 3D | 2D |
 | 传感器 | 深度相机 | 2D激光雷达 |
 | 仿真器 | CUDA C++ + ROS | 纯Python |
-| 网络输入 | 深度图像 [96×160] | 激光扫描 [180] |
+| 网络输入 | 深度图像 [96×160] | 激光扫描 [360] |
 | 运动基元 | 5×3×1 = 15 | 9 |
 | 轨迹 | 5次多项式 | 5次多项式 |
 | 依赖 | ROS, CUDA, C++ | Python only |

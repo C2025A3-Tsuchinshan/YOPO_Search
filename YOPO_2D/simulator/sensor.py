@@ -38,11 +38,13 @@ class Lidar2D:
         self.noise_std = noise_std or cfg['sensor']['noise_std']
         
         # 预计算光束角度 (以机器人朝向为0度, 逆时针为正)
-        self.beam_angles = np.linspace(
-            -self.fov / 2,
-            self.fov / 2,
-            self.num_beams
-        )
+        # 注意：当 fov=360° 时，如果使用 endpoint=True 会导致 -pi 与 +pi 重复（同一方向两次采样）。
+        # 因此全向雷达使用 endpoint=False。
+        full_circle = self.fov >= (2 * np.pi - 1e-6)
+        if full_circle:
+            self.beam_angles = np.linspace(-np.pi, np.pi, self.num_beams, endpoint=False)
+        else:
+            self.beam_angles = np.linspace(-self.fov / 2, self.fov / 2, self.num_beams, endpoint=True)
     
     def scan(
         self,
