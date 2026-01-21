@@ -11,6 +11,13 @@ import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import cfg
 
+# CUDA加速 (可选)
+try:
+    from simulator.cuda_accelerator import get_accelerator, CUDA_AVAILABLE
+    USE_CUDA = CUDA_AVAILABLE
+except ImportError:
+    USE_CUDA = False
+
 
 class Map2D:
     """2D占用栅格地图"""
@@ -87,10 +94,24 @@ class Map2D:
             return self.esdf[grid_pos[0], grid_pos[1]] * self.resolution
         return self.esdf[grid_pos[:, 0], grid_pos[:, 1]] * self.resolution
     
-    def compute_esdf(self):
-        """计算欧几里得符号距离场"""
-        # 距离变换 (free space到障碍物的距离)
-        self.esdf = distance_transform_edt(1 - self.grid)
+    def compute_esdf(self, use_cuda: bool = None):
+        """计算欧几里得符号距离场
+        
+        Args:
+            use_cuda: 是否使用CUDA加速，None表示自动检测
+        """
+        use_cuda = use_cuda if use_cuda is not None else USE_CUDA
+        
+        if use_cuda:
+            try:
+                accelerator = get_accelerator()
+                self.esdf = accelerator.compute_esdf(self.grid)
+            except Exception as e:
+                print(f"[Warning] CUDA ESDF failed, falling back to CPU: {e}")
+                self.esdf = distance_transform_edt(1 - self.grid)
+        else:
+            # CPU版本 (scipy)
+            self.esdf = distance_transform_edt(1 - self.grid)
     
     def add_boundary(self, thickness: float = 0.5):
         """添加边界墙"""
@@ -166,6 +187,7 @@ class Map2D:
         self.grid.fill(0)
         self.obstacles.clear()
         
+        
         shape = ((self.grid_size[0] // 4) * 2 + 1, (self.grid_size[1] // 4) * 2 + 1)
         
         # 调整复杂度和密度
@@ -177,6 +199,7 @@ class Map2D:
         # 填充边界
         maze[0, :] = maze[-1, :] = True
         maze[:, 0] = maze[:, -1] = True
+        
         
         # 生成迷宫
         for _ in range(density):
@@ -197,6 +220,7 @@ class Map2D:
                         maze[x_, y_] = True
                         maze[x_ + (x - x_) // 2, y_ + (y - y_) // 2] = True
                         x, y = x_, y_
+        
         
         # 放大到目标尺寸
         scale_x = self.grid_size[0] // shape[0]

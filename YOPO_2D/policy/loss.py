@@ -6,6 +6,7 @@
 - 使用 exp(-(d-d0)/r) 安全代价 (对齐 YOPO_Sim safety_loss.py)
 - 使用投影相似度引导损失 (对齐 YOPO_Sim guidance_loss.py)
 - 权重归一化 (对齐 YOPO_Sim loss_function.py denormalize_weight)
+- 支持CUDA加速的碰撞检测和轨迹生成
 """
 
 import math
@@ -17,6 +18,17 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import cfg
+
+# CUDA加速 (可选)
+try:
+    from simulator.cuda_accelerator import (
+        CollisionCheckerCUDA, 
+        TrajectoryGeneratorCUDA,
+        CUDA_AVAILABLE
+    )
+    USE_CUDA = CUDA_AVAILABLE
+except ImportError:
+    USE_CUDA = False
 
 
 class QPMatrices2D:

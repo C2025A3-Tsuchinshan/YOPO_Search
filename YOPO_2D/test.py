@@ -18,6 +18,19 @@ from simulator.dynamics import Robot2D, Poly5Solver2D
 from policy.network import YopoNetwork2D
 from policy.primitive import LatticePrimitive2D
 
+# CUDA加速 (可选)
+try:
+    from simulator.cuda_accelerator import (
+        get_accelerator, 
+        TrajectoryGeneratorCUDA,
+        CollisionCheckerCUDA,
+        CUDA_AVAILABLE
+    )
+    USE_CUDA = CUDA_AVAILABLE
+except ImportError:
+    USE_CUDA = False
+    print("[Warning] CUDA accelerator not available, using CPU")
+
 
 class YopoSimulator2D:
     """2D YOPO仿真器"""
@@ -68,6 +81,18 @@ class YopoSimulator2D:
         self.current_traj_poly = None
         self.traj_start_time = 0.0
         self.desire_pos = None
+        
+        # CUDA加速器
+        self.use_cuda_collision = USE_CUDA and use_gpu
+        if self.use_cuda_collision:
+            try:
+                self._cuda_accelerator = get_accelerator()
+                self._traj_generator = TrajectoryGeneratorCUDA(self.device)
+                self._collision_checker = CollisionCheckerCUDA(self.device)
+                print("[CUDA] Collision detection accelerator enabled")
+            except Exception as e:
+                print(f"[Warning] CUDA accelerator init failed: {e}")
+                self.use_cuda_collision = False
         self.desire_vel = None
         self.desire_acc = None
         self.step_idx = 0
@@ -198,6 +223,101 @@ class YopoSimulator2D:
         goal_body = R @ (goal - position)
         return np.concatenate([vel_body, acc_body, goal_body])
     
+    def _batch_collision_check_cuda(
+        self,
+        start_pos: np.ndarray,
+        start_vel: np.ndarray,
+        start_acc: np.ndarray,
+        end_pos_world: np.ndarray,
+        end_vel_world: np.ndarray,
+        end_acc_world: np.ndarray,
+        num_samples: int = 20
+    ) -> np.ndarray:
+        """
+        CUDA加速的批量碰撞检测
+        
+        Args:
+            start_pos: [2] 起始位置
+            start_vel: [2] 起始速度
+            start_acc: [2] 起始加速度
+            end_pos_world: [N, 2] 终止位置
+            end_vel_world: [N, 2] 终止速度
+            end_acc_world: [N, 2] 终止加速度
+            num_samples: 采样点数
+            
+        Returns:
+            safe_flags: [N] 是否安全 (True=安全)
+        """
+        N = end_pos_world.shape[0]
+        T = self.primitives.segment_time
+        
+        # 构建批量起始/终止状态 [N, 3, 2]
+        start_state = np.stack([
+            np.tile(start_pos, (N, 1)),
+            np.tile(start_vel, (N, 1)),
+            np.tile(start_acc, (N, 1))
+        ], axis=1)  # [N, 3, 2]
+        
+        end_state = np.stack([
+            end_pos_world,
+            end_vel_world,
+            end_acc_world
+        ], axis=1)  # [N, 3, 2]
+        
+        # 使用CUDA生成轨迹采样点
+        positions = self._cuda_accelerator.generate_trajectories(
+            start_state, end_state, T, num_samples
+        )  # [N, num_samples, 2]
+        
+        # 使用CUDA进行碰撞检测
+        collision, distances = self._cuda_accelerator.check_collision(
+            self.map_2d.esdf,
+            positions,
+            self.robot.radius,
+            self.map_2d.resolution
+        )  # [N, num_samples]
+        
+        # 如果任意采样点碰撞，则该轨迹不安全
+        safe_flags = ~collision.any(axis=1)  # [N]
+        
+        return safe_flags
+    
+    def _batch_collision_check_cpu(
+        self,
+        start_pos: np.ndarray,
+        start_vel: np.ndarray,
+        start_acc: np.ndarray,
+        end_pos_world: np.ndarray,
+        end_vel_world: np.ndarray,
+        end_acc_world: np.ndarray,
+        num_samples: int = 20
+    ) -> np.ndarray:
+        """
+        CPU版本的批量碰撞检测
+        """
+        N = end_pos_world.shape[0]
+        T = self.primitives.segment_time
+        safe_flags = np.ones(N, dtype=bool)
+        
+        for i in range(N):
+            traj_check = Poly5Solver2D(
+                pos0=start_pos,
+                vel0=start_vel,
+                acc0=start_acc,
+                pos1=end_pos_world[i],
+                vel1=end_vel_world[i],
+                acc1=end_acc_world[i],
+                T=T
+            )
+            
+            for t in np.linspace(0, T, num_samples):
+                pos_check = traj_check.get_position(t)
+                if not self.map_2d.is_valid_position(pos_check, self.robot.radius):
+                    safe_flags[i] = False
+                    break
+        
+        return safe_flags
+    
     @torch.no_grad()
     def plan(self, obs: dict) -> dict:
         """
@@ -243,33 +363,49 @@ class YopoSimulator2D:
         
         # 对所有候选轨迹进行碰撞检测
         collision_check_points = 20  # 碰撞检测采样点数
-        for i, endstate in enumerate(endstate_np):
+        
+        # 预计算所有终止状态的世界坐标
+        all_end_pos_world = []
+        all_end_vel_world = []
+        all_end_acc_world = []
+        for endstate in endstate_np:
             end_pos_body = endstate[:2]
             end_vel_body = endstate[2:4]
             end_acc_body = endstate[4:6]
             end_pos_world = R @ end_pos_body + position
             end_vel_world = R @ end_vel_body
             end_acc_world = R @ end_acc_body
+            all_end_pos_world.append(end_pos_world)
+            all_end_vel_world.append(end_vel_world)
+            all_end_acc_world.append(end_acc_world)
             end_positions_world.append(end_pos_world)
-            traj_lengths.append(np.linalg.norm(end_pos_body))  # 机体系下的轨迹长度
-            
-            # 构建轨迹多项式
-            traj_check = Poly5Solver2D(
-                pos0=position,
-                vel0=start_vel,
-                acc0=acc0,
-                pos1=end_pos_world,
-                vel1=end_vel_world,
-                acc1=end_acc_world,
-                T=self.primitives.segment_time
+            traj_lengths.append(np.linalg.norm(end_pos_body))
+        
+        all_end_pos_world = np.array(all_end_pos_world)
+        all_end_vel_world = np.array(all_end_vel_world)
+        all_end_acc_world = np.array(all_end_acc_world)
+        
+        # CUDA加速批量碰撞检测
+        if self.use_cuda_collision and self.map_2d.esdf is not None:
+            try:
+                safe_flags = self._batch_collision_check_cuda(
+                    position, start_vel, acc0,
+                    all_end_pos_world, all_end_vel_world, all_end_acc_world,
+                    collision_check_points
+                )
+            except Exception as e:
+                # 回退到CPU版本
+                safe_flags = self._batch_collision_check_cpu(
+                    position, start_vel, acc0,
+                    all_end_pos_world, all_end_vel_world, all_end_acc_world,
+                    collision_check_points
+                )
+        else:
+            safe_flags = self._batch_collision_check_cpu(
+                position, start_vel, acc0,
+                all_end_pos_world, all_end_vel_world, all_end_acc_world,
+                collision_check_points
             )
-            
-            # 采样检测碰撞
-            for t in np.linspace(0, self.primitives.segment_time, collision_check_points):
-                pos_check = traj_check.get_position(t)
-                if not self.map_2d.is_valid_position(pos_check, self.robot.radius):
-                    safe_flags[i] = False
-                    break
         
         end_positions_world = np.array(end_positions_world)
         traj_lengths = np.array(traj_lengths)

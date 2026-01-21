@@ -11,9 +11,16 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import cfg
 from simulator.map_generator import Map2D
 
+# CUDA加速 (可选)
+try:
+    from simulator.cuda_accelerator import get_accelerator, CUDA_AVAILABLE
+    USE_CUDA = CUDA_AVAILABLE
+except ImportError:
+    USE_CUDA = False
+
 
 class Lidar2D:
-    """2D激光雷达传感器"""
+    """2D激光雷达传感器 (支持CUDA加速)"""
     
     def __init__(
         self,
@@ -21,7 +28,8 @@ class Lidar2D:
         fov: float = None,
         max_range: float = None,
         min_range: float = None,
-        noise_std: float = None
+        noise_std: float = None,
+        use_cuda: bool = None
     ):
         """
         Args:
@@ -30,12 +38,14 @@ class Lidar2D:
             max_range: 最大探测距离 (meters)
             min_range: 最小探测距离 (meters)
             noise_std: 测量噪声标准差 (meters)
+            use_cuda: 是否使用CUDA加速，None表示自动检测
         """
         self.num_beams = num_beams or cfg['sensor']['num_beams']
         self.fov = np.deg2rad(fov or cfg['sensor']['fov'])
         self.max_range = max_range or cfg['sensor']['max_range']
         self.min_range = min_range or cfg['sensor']['min_range']
         self.noise_std = noise_std or cfg['sensor']['noise_std']
+        self.use_cuda = use_cuda if use_cuda is not None else USE_CUDA
         
         # 预计算光束角度 (以机器人朝向为0度, 逆时针为正)
         # 注意：当 fov=360° 时，如果使用 endpoint=True 会导致 -pi 与 +pi 重复（同一方向两次采样）。
@@ -45,6 +55,15 @@ class Lidar2D:
             self.beam_angles = np.linspace(-np.pi, np.pi, self.num_beams, endpoint=False)
         else:
             self.beam_angles = np.linspace(-self.fov / 2, self.fov / 2, self.num_beams, endpoint=True)
+        
+        # CUDA加速器
+        self._accelerator = None
+        if self.use_cuda:
+            try:
+                self._accelerator = get_accelerator()
+            except Exception as e:
+                print(f"[Warning] CUDA accelerator init failed: {e}")
+                self.use_cuda = False
     
     def scan(
         self,
@@ -77,7 +96,14 @@ class Lidar2D:
         ], axis=1)  # [num_beams, 2]
         
         # 使用射线投射获取距离
-        ranges = self._raycast_batch(map_2d, position, directions)
+        if self.use_cuda and self._accelerator is not None:
+            try:
+                ranges = self._raycast_cuda(map_2d, position, directions)
+            except Exception as e:
+                # 回退到CPU版本
+                ranges = self._raycast_batch(map_2d, position, directions)
+        else:
+            ranges = self._raycast_batch(map_2d, position, directions)
         
         # 添加噪声
         if add_noise and self.noise_std > 0:
@@ -85,6 +111,32 @@ class Lidar2D:
             ranges = np.clip(ranges + noise, self.min_range, self.max_range)
         
         return ranges.astype(np.float32)
+    
+    def _raycast_cuda(
+        self,
+        map_2d: Map2D,
+        origin: np.ndarray,
+        directions: np.ndarray
+    ) -> np.ndarray:
+        """
+        CUDA加速的射线投射
+        
+        Args:
+            map_2d: 2D地图
+            origin: 射线起点 [x, y]
+            directions: 射线方向 [num_rays, 2]
+            
+        Returns:
+            distances: 各射线击中距离 [num_rays]
+        """
+        return self._accelerator.raycast(
+            map_2d.grid,
+            origin,
+            directions,
+            self.max_range,
+            self.min_range,
+            map_2d.resolution
+        )
     
     def _raycast_batch(
         self,
